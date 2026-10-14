@@ -407,6 +407,43 @@ body::after{
   .title{ font-size:15px; letter-spacing:.18em; }
   .view-inner{ padding:30px 20px; }
 }
+/* ============ 触屏：点哪里，人物就走哪里 ============ */
+/* 关键：让手指点击/滑动不再被浏览器当成页面滚动 */
+#maze{
+  touch-action:none;
+  -webkit-tap-highlight-color:transparent;
+  cursor:pointer;
+}
+
+/* 悬浮「书签」按钮（触屏模式才显示） */
+#btnMarkFloat{
+  display:none;
+  position:fixed;
+  right:calc(16px + env(safe-area-inset-right, 0px));
+  bottom:calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index:55;
+  -webkit-appearance:none; appearance:none;
+  width:60px; height:60px;
+  border-radius:50%;
+  border:2px solid rgba(138,166,232,.62);
+  background:linear-gradient(180deg, rgba(255,255,255,.95), rgba(226,236,252,.95));
+  color:#4a5680;
+  font:inherit; font-size:11px; line-height:1.25;
+  align-items:center; justify-content:center; text-align:center;
+  box-shadow:0 8px 20px -10px rgba(80,104,164,.85);
+  touch-action:none;
+  -webkit-user-select:none; user-select:none;
+  -webkit-touch-callout:none;
+  transition:transform .07s ease, background .12s ease, opacity .15s ease;
+}
+body.pad-on #btnMarkFloat{ display:flex; }
+#btnMarkFloat.on{
+  background:linear-gradient(180deg,#ffe6a8,#ffd07a);
+  transform:scale(.92);
+}
+#btnMarkFloat.off{ opacity:.28; }
+
+
 </style>
 </head>
 <body>
@@ -542,6 +579,8 @@ body::after{
 
 </div>
 
+<!-- 触屏：悬浮书签按钮 -->
+<button id="btnMarkFloat" data-act="mark">书签</button>
 <script src="game.js"></script>
 <script src="story.js"></script>
 </body>
