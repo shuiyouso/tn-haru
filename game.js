@@ -915,21 +915,6 @@ canvas.addEventListener('pointerdown', () => {
   if(dialogState.active) advanceDialogPublic();
 });
 
-let touchStart = null;
-canvas.addEventListener('touchstart', e => {
-  const t = e.changedTouches[0];
-  touchStart = { x:t.clientX, y:t.clientY };
-}, { passive:true });
-
-canvas.addEventListener('touchend', e => {
-  if(!touchStart || won || state !== 'play') return;
-  const t = e.changedTouches[0];
-  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
-  touchStart = null;
-  if(Math.abs(dx) < 22 && Math.abs(dy) < 22) return;
-  if(Math.abs(dx) > Math.abs(dy)) tryMove(dx > 0 ? 1 : -1, 0);
-  else                            tryMove(0, dy > 0 ? 1 : -1);
-}, { passive:true });
 
 /* --------------------------------------------------------------
  * 16. 移动
@@ -1911,16 +1896,16 @@ startLevel(0);
 
 requestAnimationFrame(loop);
 /* ==============================================================
- * 28. 触屏控制：点哪里，人物就往哪里走
- *    · 点击迷宫 → BFS 寻路 → 自动走过去
- *    · 点到墙上 → 自动找最近的空地
- *    · 中途再点 → 换成新目标；点脚下 → 停下
- *    · 键盘随时可接管（按方向键即中断自动走路）
- *    · 悬浮「书签」按钮（第三章要插 6 张）
+ * 28. 触屏控制：朝你点的方向走
+ *    · 点哪边 → 朝那个方向（上下左右取主轴）走
+ *    · 走多远 = 你点的距离，撞到墙就停
+ *    · 中途再点 → 换方向；点自己脚下 → 停下
+ *    · 不做自动寻路 —— 那等于替玩家解迷宫
+ *    · 键盘随时接管
  * ============================================================== */
 (function initTouchControls(){
 
-  /* ---------- 1. 是否启用触屏模式 ---------- */
+  /* ---------- 1. 是否启用触屏 ---------- */
   const coarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   const isTouch = coarse || (('ontouchstart' in window) && window.innerWidth < 1200);
 
@@ -1938,77 +1923,12 @@ requestAnimationFrame(loop);
     });
   }
 
-  /* ---------- 2. 自动寻路状态 ---------- */
-  let walkPath = [];      // 待走的格索引序列
-  let walkTarget = -1;    // 目标格（用来画标记）
-  let pathTimer = 0;
+  /* ---------- 2. 行走意图 ---------- */
+  let intent = null;      // { dx, dy, left, markX, markY }
+  let stepTimer = 0;
 
-  function clearWalkPath(){
-    walkPath = [];
-    walkTarget = -1;
-  }
+  function clearIntent(){ intent = null; }
 
-  /* 从 sIdx 到 gIdx 的最短路径（BFS，只走地面） */
-  function findPath(sIdx, gIdx){
-    if(gIdx < 0 || gIdx >= grid.length) return null;
-    if(grid[gIdx] !== 0) return null;
-    if(sIdx === gIdx) return [];
-
-    const n = grid.length;
-    const prev = new Int32Array(n).fill(-1);
-    const seen = new Uint8Array(n);
-    const queue = [sIdx];
-    seen[sIdx] = 1;
-    let found = false;
-
-    for(let head = 0; head < queue.length && !found; head++){
-      const cur = queue[head];
-      const x = cur % cols, y = (cur / cols) | 0;
-      const nb = [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]];
-      for(let k = 0; k < 4; k++){
-        const nx = nb[k][0], ny = nb[k][1];
-        if(nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-        const ni = ny * cols + nx;
-        if(seen[ni] || grid[ni] !== 0) continue;
-        seen[ni] = 1;
-        prev[ni] = cur;
-        if(ni === gIdx){ found = true; break; }
-        queue.push(ni);
-      }
-    }
-    if(!found) return null;
-
-    /* 回溯 */
-    const path = [];
-    let cur = gIdx, guard = 0;
-    while(cur !== sIdx && guard++ < 20000){
-      path.push(cur);
-      cur = prev[cur];
-      if(cur < 0) return null;
-    }
-    path.reverse();
-    return path;
-  }
-
-  /* 点到墙上时：向外找最近的空地（半径最多 4 格） */
-  function nearestFloor(cx, cy){
-    if(cx >= 0 && cy >= 0 && cx < cols && cy < rows && grid[cy * cols + cx] === 0){
-      return cy * cols + cx;
-    }
-    for(let r = 1; r <= 4; r++){
-      for(let dy = -r; dy <= r; dy++){
-        for(let dx = -r; dx <= r; dx++){
-          if(Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-          const x = cx + dx, y = cy + dy;
-          if(x < 0 || y < 0 || x >= cols || y >= rows) continue;
-          if(grid[y * cols + x] === 0) return y * cols + x;
-        }
-      }
-    }
-    return -1;
-  }
-
-  /* 屏幕坐标 → 格坐标 */
   function canvasToCell(clientX, clientY){
     const rect = canvas.getBoundingClientRect();
     if(rect.width <= 0 || rect.height <= 0) return null;
@@ -2018,36 +1938,41 @@ requestAnimationFrame(loop);
     };
   }
 
-  /* ---------- 3. 点击迷宫 = 出发 ---------- */
+  /* ---------- 3. 点一下 = 朝那个方向走 ---------- */
   canvas.addEventListener('pointerdown', function(e){
-    /* 对话框开着 → 交给 game.js 原来那个监听器推进对话，这里不动 */
-    if(dialogState.active) return;
+    if(dialogState.active) return;               // 说话时点击 = 推进对话
     if(state !== 'play' || won || !chapter) return;
 
     const c = canvasToCell(e.clientX, e.clientY);
     if(!c) return;
 
-    const target = nearestFloor(c.x, c.y);
-    if(target < 0){ clearWalkPath(); return; }
+    if(c.x === gx && c.y === gy){ clearIntent(); return; }
 
-    const sIdx = gy * cols + gx;
-    if(target === sIdx){ clearWalkPath(); return; }   // 点脚下 = 停下
+    const dx = c.x - gx;
+    const dy = c.y - gy;
 
-    const path = findPath(sIdx, target);
-    if(!path || !path.length){ clearWalkPath(); return; }
+    /* 取主轴：横着远就往左右，竖着远就往上下 */
+    let sx = 0, sy = 0, dist = 0;
+    if(Math.abs(dx) >= Math.abs(dy)){
+      sx = dx > 0 ? 1 : -1;
+      dist = Math.abs(dx);
+    }else{
+      sy = dy > 0 ? 1 : -1;
+      dist = Math.abs(dy);
+    }
+    if(dist < 1) dist = 1;
 
-    walkPath = path;
-    walkTarget = target;
-    pathTimer = 0;                                    // 立刻迈第一步
+    intent = { dx:sx, dy:sy, left:dist, markX:c.x, markY:c.y };
+    stepTimer = 0;                               // 立刻迈第一步
   });
 
-  /* ---------- 4. 键盘接管：按方向键就中断自动走路 ---------- */
+  /* ---------- 4. 键盘接管 ---------- */
   const DIRKEYS = {
     ArrowUp:1, ArrowDown:1, ArrowLeft:1, ArrowRight:1,
     w:1, W:1, a:1, A:1, s:1, S:1, d:1, D:1
   };
   window.addEventListener('keydown', function(e){
-    if(DIRKEYS[e.key]) clearWalkPath();
+    if(DIRKEYS[e.key]) clearIntent();
   });
 
   /* ---------- 5. 悬浮书签按钮 ---------- */
@@ -2066,96 +1991,63 @@ requestAnimationFrame(loop);
     markBtn.addEventListener('contextmenu', function(e){ e.preventDefault(); });
   }
 
-  /* ---------- 6. 每帧推进一步 ---------- */
-  function updatePath(dt){
-    if(!walkPath.length) return;
+  /* ---------- 6. 每帧走一步 ---------- */
+  function updateIntent(dt){
+    if(!intent) return;
+    if(state !== 'play' || won){ clearIntent(); return; }
+    if(dialogState.active) return;               // 说话时先停住
 
-    if(state !== 'play' || won){ clearWalkPath(); return; }
-    if(dialogState.active) return;          // 说话时先停住
+    stepTimer -= dt;
+    if(stepTimer > 0) return;
 
-    pathTimer -= dt;
-    if(pathTimer > 0) return;
+    if(intent.left <= 0){ clearIntent(); return; }
 
-    const nextIdx = walkPath[0];
-    const nx = nextIdx % cols;
-    const ny = (nextIdx / cols) | 0;
-    const dx = nx - gx, dy = ny - gy;
-
-    /* 已经在目标格上 */
-    if(dx === 0 && dy === 0){
-      walkPath.shift();
-      if(!walkPath.length) walkTarget = -1;
-      return;
-    }
-    /* 不是相邻格（换关卡、位置被重置）→ 这条路径作废 */
-    if(Math.abs(dx) + Math.abs(dy) !== 1){
-      clearWalkPath();
-      return;
-    }
-
-    if(tryMove(dx, dy)){
-      walkPath.shift();
-      if(!walkPath.length) walkTarget = -1;
-      pathTimer = CONFIG.moveInterval;
+    if(tryMove(intent.dx, intent.dy)){
+      intent.left--;
+      stepTimer = CONFIG.moveInterval;
+      if(intent.left <= 0) clearIntent();
     }else{
-      /* 撞墙或体力不足 → 停一下再试 */
-      pathTimer = 0.25;
+      clearIntent();                             // 撞墙 = 停下，等你再点
     }
   }
 
-  /* ---------- 7. 画目标标记 + 剩余路径 ---------- */
-  function drawTarget(){
-    if(walkTarget < 0 || state !== 'play') return;
+  /* ---------- 7. 落点标记 ---------- */
+  function drawMark(){
+    if(!intent || state !== 'play') return;
 
-    const tx = walkTarget % cols;
-    const ty = (walkTarget / cols) | 0;
-    const cx = (tx + 0.5) * cell;
-    const cy = (ty + 0.5) * cell;
+    const cx = (intent.markX + 0.5) * cell;
+    const cy = (intent.markY + 0.5) * cell;
 
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    /* 落点：向外扩散的脉冲圆环 */
-    const pulse = (nowSec * 1.5) % 1;
-    ctx.globalAlpha = (1 - pulse) * 0.85;
+    const pulse = (nowSec * 1.6) % 1;
+    ctx.globalAlpha = (1 - pulse) * 0.8;
     ctx.strokeStyle = '#6f9ee6';
     ctx.lineWidth = Math.max(2, cell * 0.09);
     ctx.beginPath();
-    ctx.arc(cx, cy, cell * (0.26 + pulse * 0.32), 0, Math.PI * 2);
+    ctx.arc(cx, cy, cell * (0.28 + pulse * 0.30), 0, Math.PI * 2);
     ctx.stroke();
 
-    /* 落点中心的小方块 */
-    ctx.globalAlpha = 0.9;
+    ctx.globalAlpha = 0.85;
     ctx.fillStyle = '#5b82d8';
     const s = Math.max(3, cell * 0.14);
     ctx.fillRect(Math.round(cx - s / 2), Math.round(cy - s / 2), s, s);
 
-    /* 剩余路径：一串淡淡的脚印 */
-    ctx.globalAlpha = 0.30;
-    ctx.fillStyle = '#8fa9ea';
-    for(let i = 0; i < walkPath.length; i += 2){
-      const p = walkPath[i];
-      const px2 = ((p % cols) + 0.5) * cell;
-      const py2 = (((p / cols) | 0) + 0.5) * cell;
-      const d = Math.max(2, cell * 0.10);
-      ctx.fillRect(Math.round(px2 - d / 2), Math.round(py2 - d / 2), d, d);
-    }
-
     ctx.restore();
   }
 
-  /* ---------- 8. 自己的小循环（跑在主循环之后，标记才画得上去） ---------- */
+  /* ---------- 8. 自己的小循环 ---------- */
   let rafLast = 0;
   function touchLoop(ts){
     requestAnimationFrame(touchLoop);
-
     if(!rafLast) rafLast = ts;
     let dt = (ts - rafLast) / 1000;
     rafLast = ts;
     if(dt > 0.06) dt = 0.06;
 
-    updatePath(dt);
-    drawTarget();
+    updateIntent(dt);
+    drawMark();
   }
   requestAnimationFrame(touchLoop);
 
