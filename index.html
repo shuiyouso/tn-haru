@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>透明之夜 · 小春的迷宫</title>
+<style>
+/* ============================================================
+   透明之夜 · 小春的迷宫
+   主题：白雾 / 浅蓝 / 浅紫 —— 四章同色系，只做轻微冷暖偏移
+   ============================================================ */
+:root{
+  --ink:#3d4870;
+  --ink-soft:#7b88ab;
+  --line:rgba(148,166,216,.42);
+  --blue:#8fb8ff;
+  --violet:#bdaaff;
+  --mint:#8fe3d0;
+  --gold:#ffd894;
+}
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
+
+body{
+  margin:0;
+  min-height:100%;
+  padding:22px 18px 36px;
+  display:flex;
+  align-items:flex-start;
+  justify-content:center;
+  font-family:"Courier New", ui-monospace, Menlo, Consolas, "Microsoft YaHei", monospace;
+  letter-spacing:.04em;
+  color:var(--ink);
+  background:
+    radial-gradient(1000px 680px at 6% 2%,   #e9f1ff 0%, transparent 62%),
+    radial-gradient(900px 620px at 98% 8%,   #f2ecff 0%, transparent 62%),
+    radial-gradient(1000px 700px at 50% 108%,#ebfbf6 0%, transparent 62%),
+    linear-gradient(160deg,#f5f9ff 0%, #f2f0ff 46%, #fdf7fc 100%);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;
+  user-select:none;
+  overflow-x:hidden;
+}
+
+/* 夜空光点 */
+body::before{
+  content:""; position:fixed; inset:-12%; z-index:0; pointer-events:none;
+  background-image:
+    radial-gradient(#ffffff 1.2px, transparent 1.7px),
+    radial-gradient(rgba(255,255,255,.9) 1px, transparent 1.4px);
+  background-size:96px 96px, 143px 143px;
+  background-position:0 0, 44px 66px;
+  opacity:.55;
+  animation:twinkle 8s ease-in-out infinite alternate;
+}
+@keyframes twinkle{ from{opacity:.26} to{opacity:.68} }
+
+/* 彩色光斑 */
+body::after{
+  content:""; position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:
+    radial-gradient(460px 350px at 14% 18%, rgba(178,208,255,.40), transparent 70%),
+    radial-gradient(420px 330px at 88% 22%, rgba(214,190,255,.34), transparent 70%),
+    radial-gradient(500px 370px at 72% 88%, rgba(170,238,224,.32), transparent 70%),
+    radial-gradient(400px 330px at 22% 92%, rgba(255,192,220,.28), transparent 70%);
+  filter:blur(14px);
+  animation:drift 22s ease-in-out infinite alternate;
+}
+@keyframes drift{ from{transform:translate3d(-14px,-10px,0)} to{transform:translate3d(16px,12px,0)} }
+
+/* ============================ 布局 ============================ */
+.app{ position:relative; z-index:1; width:100%; max-width:1250px; }
+
+.title{
+  margin:0 0 5px; text-align:center;
+  font-size:19px; letter-spacing:.28em;
+  background:linear-gradient(90deg,#6d8ee6,#a583ea 34%,#4fb9bd 66%,#8fa3ec);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  filter:drop-shadow(0 1px 0 rgba(255,255,255,.95));
+}
+.subtitle{
+  margin:0 0 16px; text-align:center;
+  font-size:11.5px; letter-spacing:.14em; color:var(--ink-soft);
+}
+.game{ display:flex; gap:18px; align-items:flex-start; justify-content:center; }
+
+/* ============================ 迷宫舞台 ============================ */
+.stage{
+  position:relative;
+  padding:9px;
+  border-radius:18px;
+  background:rgba(255,255,255,.78);
+  border:1px solid var(--line);
+  box-shadow:0 26px 50px -26px rgba(96,116,170,.66), 0 0 0 4px rgba(255,255,255,.32);
+  backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+}
+#maze{
+  display:block; border-radius:12px; max-width:100%; height:auto;
+  background:#f6faff;
+  image-rendering:pixelated; image-rendering:crisp-edges;
+  box-shadow:inset 0 0 0 1px rgba(150,168,214,.32);
+}
+
+/* ============================ 对话框 ============================ */
+.dialog{
+  position:absolute; left:18px; right:18px; bottom:18px;
+  display:flex; align-items:center; gap:10px;
+  padding:9px 11px 9px 9px;
+  border-radius:13px;
+  background:linear-gradient(180deg,rgba(255,255,255,.975),rgba(238,244,255,.975));
+  border:2px solid rgba(138,166,232,.82);
+  box-shadow:0 0 0 3px rgba(255,255,255,.7), 0 16px 30px -16px rgba(78,98,160,.86);
+  opacity:0; transform:translateY(13px);
+  transition:opacity .26s ease, transform .26s ease;
+  pointer-events:none;
+}
+.dialog.show{ opacity:1; transform:translateY(0); }
+.dialog.buddy{
+  border-color:rgba(178,150,232,.88);
+  background:linear-gradient(180deg,rgba(255,255,255,.975),rgba(243,238,255,.975));
+}
+.dialog .portrait{
+  width:38px; height:52px; flex:none; border-radius:7px;
+  background:linear-gradient(180deg,#f7fbff,#eaf0ff);
+  border:1px solid rgba(150,170,220,.45);
+  image-rendering:pixelated; image-rendering:crisp-edges;
+}
+.dlg-main{ flex:1; min-width:0; }
+.dlg-name{ font-size:10px; letter-spacing:.2em; color:#5f7ad0; margin-bottom:2px; }
+.dialog.buddy .dlg-name{ color:#8a6fd0; }
+.dlg-text{
+  font-size:12.5px; line-height:1.6; letter-spacing:.05em; color:#3c4770;
+  white-space:pre-line; min-height:1.6em;
+}
+.dlg-arrow{ flex:none; font-size:10px; color:#8fa3dd; animation:blink 1s steps(2,start) infinite; }
+@keyframes blink{ 0%,100%{opacity:1} 50%{opacity:.15} }
+
+/* ============================================================
+   覆盖层：全屏模态（修掉「文字压按钮」）
+   ============================================================ */
+.cover{
+  position:fixed; inset:0; z-index:50;
+  display:none;
+  background:
+    radial-gradient(900px 620px at 20% 0%,  rgba(232,240,255,.96), transparent 70%),
+    radial-gradient(900px 620px at 80% 100%,rgba(240,234,255,.96), transparent 70%),
+    rgba(244,248,255,.95);
+  backdrop-filter:blur(10px) saturate(1.1);
+  -webkit-backdrop-filter:blur(10px) saturate(1.1);
+}
+.cover.show{ display:block; }
+
+/* 每个视图＝一个可滚动层；内层 min-height:100% + 居中，
+   内容矮时居中、内容高时撑开并滚动，永远不重叠 */
+.view{
+  position:absolute; inset:0;
+  display:none;
+  overflow-y:auto;
+  overflow-x:hidden;
+}
+.view.active{ display:block; }
+.view-inner{
+  min-height:100%;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  gap:14px;
+  padding:38px 26px;
+  text-align:center;
+}
+
+/* ---------- 标题页 ---------- */
+.ttl-big{
+  font-size:36px; letter-spacing:.36em; line-height:1.12;
+  background:linear-gradient(100deg,#6d8ee6,#a583ea 40%,#4fb9bd 75%,#8fa3ec);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+  filter:drop-shadow(0 2px 0 rgba(255,255,255,.95));
+}
+.ttl-sub{ font-size:14px; letter-spacing:.42em; color:#8290b2; margin-top:-6px; }
+.ttl-text{
+  margin:8px 0 4px; font-size:12.5px; line-height:2.05;
+  color:#6d7a9e; letter-spacing:.1em; white-space:pre-line;
+}
+.ttl-btns{ display:flex; flex-direction:column; gap:9px; margin-top:8px; width:270px; }
+.ttl-btns .btn{ width:100%; }
+.ttl-foot{
+  font-size:10.5px; color:#8b97b6; letter-spacing:.1em;
+  line-height:1.95; white-space:pre-line; margin-top:6px;
+}
+
+/* ---------- 通用视图元素 ---------- */
+.view-title{
+  font-size:16px; letter-spacing:.24em;
+  background:linear-gradient(90deg,#6d8ee6,#a583ea);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.view-desc{
+  font-size:11.5px; line-height:2; color:#6d7a9e;
+  letter-spacing:.08em; max-width:460px; white-space:pre-line;
+}
+.view-btns{
+  display:flex; gap:12px; margin-top:6px;
+  flex-wrap:wrap; justify-content:center;
+}
+
+/* ---------- 章节列表 ---------- */
+.ch-grid{
+  display:flex; flex-direction:column; gap:9px;
+  width:100%; max-width:440px; margin-top:4px;
+}
+.ch-card{
+  cursor:pointer; padding:11px 15px; border-radius:12px; text-align:left;
+  border:2px solid rgba(150,168,214,.48);
+  background:linear-gradient(180deg,#ffffff,#eff4fd);
+  box-shadow:0 2px 0 rgba(140,158,214,.24);
+  transition:transform .1s ease, background .2s ease;
+  font:inherit; color:var(--ink); position:relative;
+}
+.ch-card .ch-t{ font-size:13.5px; letter-spacing:.12em; display:block; }
+.ch-card .ch-d{
+  font-size:9.5px; color:var(--ink-soft); letter-spacing:.05em;
+  display:block; margin-top:3px; line-height:1.65;
+}
+.ch-card .ch-n{
+  position:absolute; right:13px; top:50%; transform:translateY(-50%);
+  font-size:13px; color:#3aa991;
+}
+.ch-card.sel{ background:linear-gradient(180deg,#e8f1ff,#cddffb); border-color:#8aa3e8; }
+.ch-card.locked{ opacity:.44; cursor:not-allowed; filter:grayscale(.5); }
+.ch-card:active:not(.locked){ transform:translateY(2px); }
+
+/* ---------- 序章 / 尾声 ---------- */
+.st-label{ font-size:10.5px; letter-spacing:.28em; color:#7f8cb0; }
+#storyArt{
+  width:min(100%, 368px);
+  height:auto;
+  border-radius:12px;
+  border:1px solid rgba(150,168,214,.45);
+  image-rendering:pixelated; image-rendering:crisp-edges;
+  box-shadow:0 14px 28px -18px rgba(70,90,150,.85);
+  background:#131a34;
+}
+.st-text{
+  font-size:12.5px; line-height:2.05; letter-spacing:.06em;
+  color:#4a5680; white-space:pre-line;
+  max-width:480px; min-height:6em;
+}
+.st-dots{ display:flex; gap:6px; }
+.st-dots i{ width:6px; height:6px; border-radius:50%; background:rgba(150,168,214,.32); }
+.st-dots i.on{ background:linear-gradient(90deg,#8fb8ff,#bdaaff); }
+
+/* ---------- 结局 ---------- */
+#endArt{
+  width:min(100%, 368px);
+  height:auto;
+  border-radius:12px;
+  border:1px solid rgba(150,168,214,.45);
+  image-rendering:pixelated; image-rendering:crisp-edges;
+  box-shadow:0 14px 28px -18px rgba(70,90,150,.85);
+  background:#131a34;
+}
+.end-spark{
+  font-size:13px; letter-spacing:.5em;
+  background:linear-gradient(90deg,#8fb8ff,#bdaaff,#8fe3d0,#ffaed2);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.end-title{ font-size:17px; letter-spacing:.14em; color:#3f4a74; text-shadow:0 1px 0 #fff; }
+.end-text{
+  font-size:12px; line-height:2.05; letter-spacing:.06em;
+  color:#5c688e; white-space:pre-line; max-width:480px;
+}
+.end-sub{
+  font-size:11px; color:var(--ink-soft);
+  letter-spacing:.08em; line-height:1.95; white-space:pre-line;
+}
+.end-unlock{ font-size:11px; color:#3aa991; letter-spacing:.08em; line-height:1.8; }
+
+/* ============================ 按钮 ============================ */
+.btn{
+  font:inherit; font-size:12.5px; letter-spacing:.13em; color:var(--ink);
+  padding:9px 18px; border-radius:9px; cursor:pointer;
+  background:linear-gradient(180deg,#ffffff,#edf2fb);
+  border:2px solid rgba(150,168,214,.52);
+  box-shadow:0 2px 0 rgba(140,158,214,.26), 0 10px 18px -12px rgba(96,116,170,.8);
+  transition:transform .08s ease, filter .15s ease;
+}
+.btn:hover{ filter:brightness(1.04); }
+.btn:active{ transform:translateY(2px); box-shadow:none; }
+.btn.primary{
+  background:linear-gradient(180deg,#d5e2ff,#b0c6f5);
+  border-color:#8aa3e8; color:#2f3b63;
+}
+.btn.gold{
+  background:linear-gradient(180deg,#ffefcb,#ffd996);
+  border-color:#e8b463; color:#7a4d16;
+}
+.btn.ghost{
+  background:transparent; box-shadow:none;
+  border-color:rgba(150,168,214,.38); font-size:11px; padding:7px 15px;
+}
+.btn[disabled]{ opacity:.46; cursor:not-allowed; filter:grayscale(.5); }
+.btn.tiny{
+  font-size:10px; padding:5px 11px; letter-spacing:.14em;
+  opacity:.78; border-width:1px;
+}
+
+/* ============================ 右侧面板 ============================ */
+.panel{
+  flex:0 0 268px; width:268px;
+  display:flex; flex-direction:column; gap:11px;
+}
+.card{
+  position:relative; padding:12px 14px; border-radius:15px;
+  background:rgba(255,255,255,.8);
+  border:1px solid var(--line);
+  box-shadow:0 18px 34px -24px rgba(96,116,170,.78);
+  backdrop-filter:blur(7px); -webkit-backdrop-filter:blur(7px);
+  overflow:hidden;
+}
+.card::before{
+  content:""; position:absolute; left:0; right:0; top:0; height:3px;
+  background:var(--stripe,linear-gradient(90deg,var(--blue),var(--violet)));
+}
+.card.c-blue  { --stripe:linear-gradient(90deg,#9cc2ff,#c3d8ff); }
+.card.c-violet{ --stripe:linear-gradient(90deg,#bdaaff,#ded4ff); }
+.card.c-mint  { --stripe:linear-gradient(90deg,#8fe3d0,#c9f5e9); }
+.card.c-pink  { --stripe:linear-gradient(90deg,#ffaed2,#ffd6e7); }
+.card.c-gold  { --stripe:linear-gradient(90deg,#ffd894,#ffeec8); }
+.card-title{
+  font-size:10.5px; letter-spacing:.2em; color:var(--ink-soft);
+  margin:3px 0 8px;
+}
+
+/* 角色卡 */
+.hero{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:10px; padding:12px 15px;
+}
+.hero-name{
+  font-size:18px; letter-spacing:.24em;
+  background:linear-gradient(90deg,#6f8fe0,#a583ea);
+  -webkit-background-clip:text; background-clip:text; color:transparent;
+}
+.hero-tag{ margin-top:3px; font-size:9.5px; letter-spacing:.3em; color:var(--ink-soft); }
+.avatar{
+  width:40px; height:55px; border-radius:9px;
+  background:linear-gradient(180deg,#f7fbff,#e8efff);
+  border:1px solid rgba(150,168,214,.45);
+  image-rendering:pixelated; image-rendering:crisp-edges;
+}
+
+/* 清单 */
+.bucket-item{
+  display:flex; align-items:center; gap:8px;
+  padding:5px 0; font-size:11.5px; letter-spacing:.08em;
+  color:#8b97b6;
+  border-bottom:1px dashed rgba(150,168,214,.26);
+}
+.bucket-item:last-child{ border-bottom:none; }
+.bucket-item .bx{
+  width:13px; height:13px; flex:none; border-radius:3px;
+  border:1.5px solid rgba(150,168,214,.58);
+  background:rgba(255,255,255,.7);
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; color:#fff; line-height:1;
+}
+.bucket-item.on{ color:#3f4a74; }
+.bucket-item.on .bx{
+  background:linear-gradient(180deg,#a9d8f7,#8fa9ea);
+  border-color:#8aa3e8;
+}
+
+/* 状态 */
+.stat{
+  display:flex; align-items:baseline; justify-content:space-between;
+  padding:5px 0; font-size:11.5px;
+}
+.stat .k{ color:var(--ink-soft); letter-spacing:.12em; }
+.stat .v{ font-size:13px; letter-spacing:.05em; color:#5b82d8; }
+.bar{
+  height:7px; margin:2px 0 8px; border-radius:5px;
+  background:rgba(150,168,214,.18); overflow:hidden;
+}
+.bar > i{
+  display:block; height:100%; width:100%; border-radius:5px;
+  background:linear-gradient(90deg,#9fd8ff,#a9b6ff);
+  transition:width .18s ease;
+}
+.bar.low > i{ background:linear-gradient(90deg,#ffd08a,#ffa8b8); }
+
+.effort{
+  display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;
+  font-size:10.5px; color:var(--ink-soft);
+}
+.effort span{ display:flex; justify-content:space-between; letter-spacing:.05em; }
+.effort b{ color:#5d6a94; font-weight:normal; }
+
+.hint{ font-size:10.5px; line-height:1.9; letter-spacing:.06em; color:var(--ink-soft); }
+.hint b{ color:#5d6a94; font-weight:normal; }
+.hint .dot{ color:var(--violet); }
+
+.sound-row{ display:flex; align-items:center; justify-content:space-between; gap:8px; }
+
+/* ============================ 窄屏 ============================ */
+@media (max-width: 1100px){
+  .game{ flex-direction:column; align-items:center; }
+  .panel{ width:100%; max-width:600px; flex:none; }
+  .title{ font-size:15px; letter-spacing:.18em; }
+  .view-inner{ padding:30px 20px; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <h1 class="title">透 明 之 夜 · 小 春 的 迷 宫</h1>
+  <p class="subtitle" id="subtitle">她看不见路，所以她一步一步地把路摸出来。</p>
+
+  <div class="game">
+
+    <!-- ======================= 迷宫舞台 ======================= -->
+    <div class="stage">
+      <canvas id="maze"></canvas>
+
+      <div class="dialog" id="dialog">
+        <canvas class="portrait" id="portrait" width="16" height="22"></canvas>
+        <div class="dlg-main">
+          <div class="dlg-name" id="dlgName">小春</div>
+          <div class="dlg-text" id="dlgText"></div>
+        </div>
+        <div class="dlg-arrow">▼</div>
+      </div>
+    </div>
+
+    <!-- ======================= 右侧面板 ======================= -->
+    <aside class="panel">
+
+      <div class="card c-pink hero">
+        <div>
+          <div class="hero-name" id="heroName">小春</div>
+          <div class="hero-tag" id="heroTag">H A R U</div>
+        </div>
+        <canvas class="avatar" id="avatar" width="16" height="22"></canvas>
+      </div>
+
+      <div class="card c-gold">
+        <div class="card-title">想 做 的 事</div>
+        <div id="bucketList"></div>
+      </div>
+
+      <div class="card c-blue">
+        <div class="card-title" id="chapterLabel">当 前 状 态</div>
+        <div class="stat">
+          <span class="k">体力</span>
+          <span class="v" id="statStamina">—</span>
+        </div>
+        <div class="bar" id="staminaBar"><i id="staminaFill"></i></div>
+        <div class="stat">
+          <span class="k">书签</span>
+          <span class="v" id="statMarks">0</span>
+        </div>
+        <div class="effort">
+          <span><i>撞墙</i><b id="effBump">0</b></span>
+          <span><i>走错</i><b id="effWrong">0</b></span>
+          <span><i>折返</i><b id="effTurn">0</b></span>
+          <span><i>停下</i><b id="effRest">0</b></span>
+        </div>
+      </div>
+
+      <div class="card c-mint hint" id="hintBox"></div>
+
+      <div class="card c-violet sound-row">
+        <span class="card-title" style="margin:0">声 音</span>
+        <button class="btn tiny" id="btnMute">静 音</button>
+      </div>
+
+    </aside>
+  </div>
+</div>
+
+<!-- ============================================================
+     全屏覆盖层：标题 / 选章 / 序章 / 结局
+     ============================================================ -->
+<div class="cover" id="cover">
+
+  <!-- 标题页 -->
+  <section class="view active" id="vTitle">
+    <div class="view-inner">
+      <div class="ttl-big">透 明 之 夜</div>
+      <div class="ttl-sub">小 春 的 迷 宫</div>
+      <p class="ttl-text" id="ttlText"></p>
+      <div class="ttl-btns">
+        <button class="btn primary" id="btnPlay">开 始</button>
+        <button class="btn" id="btnChapters">章 节 回 顾</button>
+      </div>
+      <div class="ttl-foot" id="ttlFoot"></div>
+      <button class="btn tiny" id="btnReset">重 置 进 度</button>
+    </div>
+  </section>
+
+  <!-- 章节回顾 -->
+  <section class="view" id="vSelect">
+    <div class="view-inner">
+      <div class="view-title" id="selTitle">章 节 回 顾</div>
+      <div class="view-desc" id="selDesc"></div>
+      <div class="ch-grid" id="chGrid"></div>
+      <div class="view-btns">
+        <button class="btn" id="btnSelBack">返 回</button>
+        <button class="btn primary" id="btnSelGo">出 发</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 序章 / 尾声 -->
+  <section class="view" id="vStory">
+    <div class="view-inner">
+      <div class="st-label" id="stLabel"></div>
+      <canvas id="storyArt" width="480" height="280"></canvas>
+      <div class="st-text" id="stText"></div>
+      <div class="st-dots" id="stDots"></div>
+      <div class="view-btns">
+        <button class="btn ghost" id="btnSkip">跳 过</button>
+        <button class="btn primary" id="btnNext">继 续 ▼</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 结局 / 终章 -->
+  <section class="view" id="vEnd">
+    <div class="view-inner">
+      <div class="end-spark">✧ ✦ ✧</div>
+      <canvas id="endArt" width="480" height="280"></canvas>
+      <div class="end-title" id="endTitle"></div>
+      <div class="end-text" id="endText"></div>
+      <div class="end-unlock" id="endUnlock"></div>
+      <div class="end-sub" id="endStats"></div>
+      <div class="view-btns">
+        <button class="btn" id="btnToTitle">回 到 标 题</button>
+        <button class="btn primary" id="btnAgain">再 走 一 次</button>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="game.js"></script>
+<script src="story.js"></script>
+</body>
+</html>
